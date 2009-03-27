@@ -312,10 +312,8 @@ module Buildr
       
       def erb_transform(content, path = nil)
         case config
-        when Binding, Proc
+        when Binding
           bnd = config
-        when Method
-          bnd = config.to_proc
         when Hash
           bnd = OpenStruct.new
           table = config.inject({}) { |h, e| h[e.first.to_sym] = e.last; h }
