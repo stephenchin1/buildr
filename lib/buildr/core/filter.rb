@@ -285,7 +285,7 @@ module Buildr
           @config = configurer.call(*args, &block)
         else
           raise ArgumentError, "Missing hash argument after :#{mapper_type}" unless args.size == 1 && Hash === args[0]
-          @config = *args
+          @config = args.first
         end
         @mapper_type = mapper_type
       end
