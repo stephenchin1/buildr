@@ -308,3 +308,103 @@ class Hash
   end
 
 end
+
+if Buildr::Util.java_platform?
+  require 'ffi'
+  
+  module Buildr
+    class ProcessStatus
+      attr_reader :pid, :termsig, :stopsig
+      
+      def initialize(pid, success)
+        @pid = pid
+        @success = success
+        
+        @termsig = nil
+        @stopsig = nil
+      end
+      
+      def &(num)
+        pid & num
+      end
+      
+      def ==(other)
+        pid == other.pid
+      end
+      
+      def >>(num)
+        pid >> num
+      end
+      
+      def coredump?
+        false
+      end
+      
+      def exited?
+        true
+      end
+      
+      def stopped?
+        false
+      end
+      
+      def success?
+        @success
+      end
+      
+      def to_i
+        pid
+      end
+      
+      def to_int
+        pid
+      end
+      
+      def to_s
+        pid.to_s
+      end
+    end
+  end
+
+  module FileUtils
+    extend extend FFI::Library
+    attach_function :system, [:string], :int
+    alias_method :__native_system__, :system
+    
+    # code "borrowed" directly from Rake
+    def sh(*cmd, &block)
+      options = (Hash === cmd.last) ? cmd.pop : {}
+      unless block_given?
+        show_command = cmd.join(" ")
+        show_command = show_command[0,42] + "..."
+        
+        block = lambda { |ok, status|
+          ok or fail "Command failed with status (#{status.exitstatus}): [#{show_command}]"
+        }
+      end
+      if RakeFileUtils.verbose_flag == :default
+        options[:verbose] = false
+      else
+        options[:verbose] ||= RakeFileUtils.verbose_flag
+      end
+      options[:noop]    ||= RakeFileUtils.nowrite_flag
+      rake_check_options options, :noop, :verbose
+      rake_output_message cmd.join(" ") if options[:verbose]
+      unless options[:noop]
+        cd = "cd '#{Dir.pwd}' && "
+        args = if cmd.size > 1 then cmd[1..cmd.size] else [] end
+        
+        res = if Buildr::Util.win_os? && cmd.size == 1
+          __native_system__("#{cd} call #{cmd.first}") == 0
+        else
+          arg_str = args.map { |a| "'#{a}'" }
+          __native_system__(cd + cmd.first + ' ' + arg_str.join(' ')) == 0
+        end
+        $? = Buildr::ProcessStatus.new(0, res)    # KLUDGE
+        
+        block.call(res, $?)
+      end
+    end
+
+  end
+end

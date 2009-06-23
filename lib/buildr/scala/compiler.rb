@@ -19,18 +19,31 @@ require 'buildr/core/compile'
 require 'buildr/packaging'
 
 module Buildr::Scala
-
+  DEFAULT_VERSION = '2.7.5'   # currently the latest (Jun 19, 2009)
+  
   class << self
+    
+    # Retrieves the Scala version string from the 
+    # standard library or nil if Scala is not
+    # available.
     def version_str
-      # Scala version string normally looks like "version 2.7.3.final"
-      Java.scala.util.Properties.versionString.sub 'version ', ''
+      begin
+        # Scala version string normally looks like "version 2.7.3.final"
+        Java.scala.util.Properties.versionString.sub 'version ', ''
+      rescue
+        nil
+      end
     end
     
     def version
-      # any consecutive sequence of numbers followed by dots
-      match = version_str.match(/\d+\.\d[\d\.]*/) or
-        fail "Unable to parse Scala version: #{version_str} "
-      match[0].sub(/.$/, "") # remove trailing dot, if any
+      if version_str
+        # any consecutive sequence of numbers followed by dots
+        match = version_str.match(/\d+\.\d[\d\.]*/) or
+          fail "Unable to parse Scala version: #{version_str} "
+        match[0].sub(/.$/, "") # remove trailing dot, if any
+      else
+        DEFAULT_VERSION       # TODO return the version installed from Maven repo
+      end
     end
   end
 
@@ -47,17 +60,44 @@ module Buildr::Scala
   # * :debug       -- Generate debugging info.
   # * :other       -- Array of options to pass to the Scalac compiler as is, e.g. -Xprint-types
   class Scalac < Buildr::Compiler::Base
+    
+    # The scalac compiler jars are added to classpath at load time,
+    # if you want to customize artifact versions, you must set them on the
+    #
+    #      artifact_ns['Buildr::Compiler::Scalac'].library = '2.7.5'
+    #
+    # namespace before this file is required.  This is of course, only
+    # if SCALA_HOME is not set or invalid.
+    REQUIRES = ArtifactNamespace.for(self) do |ns|
+      ns.library!      'org.scala-lang:scala-library:jar:>=' + DEFAULT_VERSION
+      ns.compiler!     'org.scala-lang:scala-compiler:jar:>=' + DEFAULT_VERSION
+    end
+    
     class << self
       def scala_home
-        @home ||= ENV['SCALA_HOME']
+        env_home = ENV['SCALA_HOME']
+        
+        @home ||= (if !env_home.nil? && File.exists?(env_home + '/lib/scala-library.jar') && File.exists?(env_home + '/lib/scala-compiler.jar')
+          env_home
+        else
+          nil
+        end)
+      end
+      
+      def installed?
+        !scala_home.nil?
       end
 
       def dependencies
-        [ 'scala-library.jar', 'scala-compiler.jar'].map { |jar| File.expand_path("lib/#{jar}", scala_home) }
+        if installed?
+          ['scala-library', 'scala-compiler'].map { |s| File.expand_path("lib/#{s}.jar", scala_home) }
+        else
+          REQUIRES.artifacts.map(&:to_s)
+        end
       end
 
       def use_fsc
-        ENV["USE_FSC"] =~ /^(yes|on|true)$/i
+        installed? && ENV["USE_FSC"] =~ /^(yes|on|true)$/i
       end
       
       def applies_to?(project, task) #:nodoc:
@@ -101,8 +141,8 @@ module Buildr::Scala
       cmd_args += files_from_sources(sources)
 
       unless Buildr.application.options.dryrun
-        Scalac.scala_home or fail 'Are we forgetting something? SCALA_HOME not set.'
         trace((['scalac'] + cmd_args).join(' '))
+        
         if Scalac.use_fsc
           system(([File.expand_path('bin/fsc', Scalac.scala_home)] + cmd_args).join(' ')) or
             fail 'Failed to compile, see errors above'
@@ -119,8 +159,8 @@ module Buildr::Scala
         if java_applies? sources
           trace 'Compiling mixed Java/Scala sources'
           
-          deps = dependencies + [ File.expand_path('lib/scala-library.jar', Scalac.scala_home),
-                                  File.expand_path(target) ]
+          # TODO  includes scala-compiler.jar
+          deps = dependencies + Scalac.dependencies + [ File.expand_path(target) ]
           @java.compile(sources, target, deps)
         end
       end
