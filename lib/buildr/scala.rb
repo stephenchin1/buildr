@@ -25,11 +25,15 @@ require 'buildr/scala/shell'
 Object::Scala = Buildr::Scala
 
 module Buildr
-  module ScalaProject
+  module ScalaShell
     include Extension
     
+    first_time do
+      Project.local_task 'shell'
+    end
+    
     after_define do |project|
-      project.task 'scala:shell' => :compile do
+      project.task 'shell' => :compile do
         Scalac = Buildr::Scala::Scalac
         
         Scalac.scala_home or fail 'Are we forgetting something? SCALA_HOME not set.'
@@ -47,6 +51,6 @@ module Buildr
   end
   
   class Project
-    include ScalaProject
+    include ScalaShell
   end
 end
